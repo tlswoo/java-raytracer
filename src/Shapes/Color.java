@@ -16,6 +16,11 @@ public class Color {
         return new Color(this.colorValue[2] * factor, this.colorValue[1] * factor, this.colorValue[0] * factor);
     }
 
+    public Color addColor(Color other) {
+        double[] otherColorValue = other.getBGR();
+        return new Color(this.colorValue[2] + otherColorValue[2], this.colorValue[1] + otherColorValue[1], this.colorValue[0] + otherColorValue[0]);
+    }
+
     public Scalar asScalar() {
         return new Scalar(this.colorValue[0], this.colorValue[1], this.colorValue[2]);
     }

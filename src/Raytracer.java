@@ -6,12 +6,15 @@ import org.opencv.highgui.HighGui;
 import java.util.Arrays;
 import java.util.List;
 import java.lang.Math;
+import java.util.prefs.PreferenceChangeListener;
 
 import Lights.*;
 
 public class Raytracer {
     // Compulsory
     static{ System.loadLibrary(Core.NATIVE_LIBRARY_NAME); }
+
+    // @TODO: make spheres/lights lists static variables? and remove from method headers
 
     // Define all colors here
     static Color BLACK = new Color(0, 0, 0);
@@ -66,8 +69,9 @@ public class Raytracer {
         return solutions;
     }
 
-    // t is the distance on the ray from the current point/camera origin
-    static Color traceRay(Point3 O, Point3 D, double t_min, double t_max, List<Sphere> spheres, List<Light> lights) {
+    /* Find first object on path from O to D, and calculate its color, lighting, and reflections
+    * Note that t is the distance on the ray from the current point/camera origin */
+    static Color traceRay(Point3 O, Point3 D, double t_min, double t_max, List<Sphere> spheres, List<Light> lights, int recursion_depth) {
         Utils.Pair<Sphere, Double> sphereInfo = closestIntersection(O, D, t_min, t_max, spheres);
         Sphere closest_sphere = sphereInfo.first;
         double closest_t = sphereInfo.second;
@@ -76,15 +80,32 @@ public class Raytracer {
             return BACKGROUND_COLOR;
         }
 
-        // Handle lighting calculations here
+        // Lighting vector math setup
         Point3 P = Utils.getSum(O, Utils.scaleVector(D, closest_t));
         Point3 N = Utils.getVector(P, closest_sphere.getCenter());
         N = Utils.scaleVector(N, 1 / Utils.getMagnitude(N));
 
-        return closest_sphere.getColor().scaleColor(computeLighting(P, N, Utils.scaleVector(D, -1), closest_sphere.getSpecularity(), spheres, lights));
+        // originalColor gives us the color for that point, with lighting/specularity taken into account
+        Color originalColor = closest_sphere.getColor().scaleColor(computeLighting(P, N, Utils.scaleVector(D, -1), closest_sphere.getSpecularity(), spheres, lights));
+
+        // Handle reflection recursion here
+        double sphereReflectivity = closest_sphere.getReflectivity();
+        if (recursion_depth <= 0 || sphereReflectivity <= 0) { // Only proceed if we have more recursive iterations/the sphere is indeed reflective
+            return originalColor;
+        }
+
+        // Compute reflected color
+        Point3 R = reflectRay(Utils.scaleVector(D, -1), N);
+        Color reflectedColor = traceRay(P, R, 0.001, Double.POSITIVE_INFINITY, spheres, lights, recursion_depth - 1);
+
+        // Final color is a combination of originalColor and reflectedCover, scaled by sphere's reflectivity
+
+        return originalColor.scaleColor(1 - sphereReflectivity).addColor(reflectedColor.scaleColor(sphereReflectivity));
     }
 
     // LIGHTING //////////////////////////////////////////////////
+
+    /* Compute closest intersection from the camera to the first object seen on vector OD */
     static Utils.Pair<Sphere, Double> closestIntersection(Point3 O, Point3 D, double t_min, double t_max, List<Sphere> spheres) {
         double closest_t = Double.POSITIVE_INFINITY;
         Sphere closest_sphere = null;
@@ -105,7 +126,12 @@ public class Raytracer {
         return new Utils.Pair<Sphere, Double>(closest_sphere, closest_t);
     }
 
-    // Compute the lighting of point P given its normal N
+    /* Compute the reflection of vector R with respect to N */
+    static Point3 reflectRay(Point3 R, Point3 N) {
+        return Utils.getVector(Utils.scaleVector(N, 2 * N.dot(R)), R);
+    }
+
+    /* Compute the lighting of point P given its normal N */
     static double computeLighting(Point3 P, Point3 N, Point3 V, double specularity, List<Sphere> spheres, List<Light> lights) {
         double intensity = 0;
         double t_max = 0;
@@ -139,7 +165,7 @@ public class Raytracer {
                 // Specular reflection (specularity of -1 => matte object)
                 if (specularity != -1) {
                     // R is the vector representing the reflection from the light L
-                    Point3 R = Utils.getVector(Utils.scaleVector(N, 2 * N.dot(L)), L);
+                    Point3 R = reflectRay(L, N);
                     double rdv = R.dot(V); // R dot V
                     if (rdv > 0) {
                         intensity += light.getIntensity() * Math.pow(rdv / (Utils.getMagnitude(R) * Utils.getMagnitude(V)), specularity);
@@ -182,7 +208,7 @@ public class Raytracer {
                 // nextPoint refers to a canvas coordinate (centered at 0)
                 Point nextPoint = new Point(x, y);
                 Point3 D = canvasToViewport(nextPoint);
-                Color traceColor = traceRay(O, D, 1, Double.POSITIVE_INFINITY, spheres, lights);
+                Color traceColor = traceRay(O, D, 1, Double.POSITIVE_INFINITY, spheres, lights, 3);
                 putPixel(canvas, nextPoint, traceColor);
             }
         }

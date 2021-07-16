@@ -31,6 +31,8 @@ public class Sphere {
 
     public double getSpecularity() { return this.specularity; }
 
+    public double getReflectivity() { return this.reflectivity; }
+
     public void makeMatte() {
         this.specularity = -1;
     }
